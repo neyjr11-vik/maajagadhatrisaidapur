@@ -6,8 +6,10 @@
 
    Environment variables (Vercel Dashboard → Project Settings → Environment Variables):
      GROQ_API_KEY   gsk_...
-     GROQ_MODEL     llama-3.3-70b-versatile  (optional)
+     GROQ_MODEL     qwen/qwen3.8-27b  (optional)
    ============================================================ */
+
+const DEFAULT_MODEL = "qwen/qwen3.8-27b";
 
 module.exports = async function handler(req, res) {
   /* CORS headers */
@@ -26,6 +28,7 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({
       status: "ok",
       configured: isConfigured,
+      model: process.env.GROQ_MODEL || DEFAULT_MODEL,
       message: isConfigured
         ? "AI chat proxy is active and ready."
         : "GROQ_API_KEY environment variable is missing in Vercel project settings."
@@ -61,10 +64,14 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: "messages array is required." });
   }
 
-  const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  let model = process.env.GROQ_MODEL || DEFAULT_MODEL;
+  // Fallback if configured with decommissioned Llama 3 models
+  if (model.includes("llama-3.3") || model.includes("llama-3.1") || model.includes("llama3")) {
+    model = DEFAULT_MODEL;
+  }
 
   try {
-    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    let groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -83,6 +90,30 @@ module.exports = async function handler(req, res) {
       data = await groqRes.json();
     } catch (_) {
       data = {};
+    }
+
+    // If configured model failed with model not found, try fallback to DEFAULT_MODEL
+    if (!groqRes.ok && data?.error?.code === "model_not_found" && model !== DEFAULT_MODEL) {
+      console.warn(`[chat] Model ${model} not found, falling back to ${DEFAULT_MODEL}`);
+      model = DEFAULT_MODEL;
+      groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + apiKey.trim(),
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: messages,
+          max_tokens: 500,
+          temperature: 0.4,
+        }),
+      });
+      try {
+        data = await groqRes.json();
+      } catch (_) {
+        data = {};
+      }
     }
 
     if (!groqRes.ok) {
