@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+
+# AI crawlers welcome — the site is documented in /llms.txt
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://maajagadhatrisaidapur.vercel.app/sitemap.xml
