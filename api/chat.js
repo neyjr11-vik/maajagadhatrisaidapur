@@ -1,54 +1,66 @@
 /* ============================================================
-   Vercel serverless function — Groq proxy  (CommonJS)
+   Maa Jagadhatri Pooja, Saidapur — Vercel serverless proxy
    ------------------------------------------------------------
-   Keeps the Groq API key server-side (never exposed to the
-   browser). The front-end posts to /api/chat and this function
-   forwards the request to Groq.
+   Keeps the Groq API key server-side (never exposed to client).
+   The front-end posts to /api/chat.
 
-   Environment variables (Vercel dashboard → Settings → Env Vars):
-     GROQ_API_KEY   gsk_...                      (required)
-     GROQ_MODEL     llama-3.3-70b-versatile       (optional)
+   Environment variables (Vercel Dashboard → Project Settings → Environment Variables):
+     GROQ_API_KEY   gsk_...
+     GROQ_MODEL     llama-3.3-70b-versatile  (optional)
    ============================================================ */
 
 module.exports = async function handler(req, res) {
-  /* ---- CORS headers (allow the browser to call this endpoint) ---- */
+  /* CORS headers */
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  /* ---- Handle CORS pre-flight ---- */
+  /* Pre-flight check */
   if (req.method === "OPTIONS") {
     return res.status(204).end();
   }
 
-  /* ---- Only allow POST ---- */
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  /* ---- Guard: API key must be set as an env var ---- */
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    console.error("[chat] GROQ_API_KEY is not set.");
-    return res.status(503).json({
-      error: "Chat service is not configured. Please contact the site owner.",
+  /* Diagnostic GET endpoint to verify function is deployed & configured */
+  if (req.method === "GET") {
+    const isConfigured = Boolean(process.env.GROQ_API_KEY);
+    return res.status(200).json({
+      status: "ok",
+      configured: isConfigured,
+      message: isConfigured
+        ? "AI chat proxy is active and ready."
+        : "GROQ_API_KEY environment variable is missing in Vercel project settings."
     });
   }
 
-  /* ---- Parse body (Vercel auto-parses JSON when Content-Type is application/json) ---- */
-  let body = req.body;
-
-  /* Fallback: manually parse if body is still a string */
-  if (typeof body === "string") {
-    try { body = JSON.parse(body); } catch (_) { body = {}; }
+  /* Only allow POST for completions */
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
-  const messages = (body && Array.isArray(body.messages)) ? body.messages : null;
+  /* Verify environment variable is present */
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    console.error("[chat] GROQ_API_KEY environment variable is missing.");
+    return res.status(503).json({
+      error: "Chat service is not configured. Please ensure GROQ_API_KEY is set in Vercel environment variables.",
+    });
+  }
+
+  /* Parse incoming messages */
+  let body = req.body;
+  if (typeof body === "string") {
+    try {
+      body = JSON.parse(body);
+    } catch (_) {
+      body = {};
+    }
+  }
+
+  const messages = body && Array.isArray(body.messages) ? body.messages : null;
   if (!messages || messages.length === 0) {
     return res.status(400).json({ error: "messages array is required." });
   }
 
-  /* ---- Forward to Groq ---- */
   const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
   try {
@@ -56,7 +68,7 @@ module.exports = async function handler(req, res) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + apiKey,
+        "Authorization": "Bearer " + apiKey.trim(),
       },
       body: JSON.stringify({
         model: model,
@@ -74,17 +86,18 @@ module.exports = async function handler(req, res) {
     }
 
     if (!groqRes.ok) {
-      const errMsg = (data && data.error && data.error.message) || ("HTTP " + groqRes.status);
-      console.error("[chat] Groq error:", errMsg);
+      const errMsg =
+        (data && data.error && (typeof data.error === "string" ? data.error : data.error.message)) ||
+        `Groq HTTP ${groqRes.status}`;
+      console.error("[chat] Groq API returned error:", errMsg);
       return res.status(groqRes.status).json({ error: errMsg });
     }
 
     return res.status(200).json(data);
-
   } catch (err) {
-    console.error("[chat] Fetch error:", err.message);
+    console.error("[chat] Network error while calling Groq:", err.message);
     return res.status(502).json({
-      error: "Failed to reach the AI service. Please try again.",
+      error: "Failed to connect to the AI service: " + err.message,
     });
   }
 };

@@ -123,7 +123,16 @@
     try { data = await res.json(); } catch (_) { data = {}; }
 
     if (!res.ok) {
-      var errMsg = (data && data.error) || ("HTTP " + res.status);
+      var errMsg = "HTTP " + res.status;
+      if (data && data.error) {
+        if (typeof data.error === "string") {
+          errMsg = data.error;
+        } else if (data.error.message) {
+          errMsg = data.error.message;
+        } else {
+          errMsg = JSON.stringify(data.error);
+        }
+      }
       throw new Error(errMsg);
     }
 
@@ -161,10 +170,12 @@
       /* Surface specific error types clearly */
       if (err.message) {
         var m = err.message.toLowerCase();
-        if (m.includes("not configured") || m.includes("503")) {
-          userMsg = "⚙️ The AI assistant isn't set up on this server yet. Please email maajagadhatrisaidapur@gmail.com 🙏";
+        if (m.includes("not configured") || m.includes("503") || m.includes("missing")) {
+          userMsg = "⚙️ The AI assistant isn't set up yet — please add GROQ_API_KEY in Vercel Project Settings → Environment Variables, then redeploy.";
         } else if (m.includes("api key") || m.includes("401") || m.includes("403")) {
-          userMsg = "⚠️ API key issue — the Groq key may be invalid or expired. Please contact the site owner.";
+          userMsg = "⚠️ API key issue — the Groq key in Vercel may be invalid or expired. Please check your Groq console.";
+        } else if (m.includes("rate limit") || m.includes("429")) {
+          userMsg = "⏳ Service busy — rate limit reached. Please wait a minute and try again.";
         } else if (m.includes("failed to fetch") || m.includes("networkerror") || m.includes("502")) {
           userMsg = "🌐 Network error — please check your connection and try again.";
         }
